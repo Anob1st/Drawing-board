@@ -50,7 +50,7 @@ function startDraw(pos){
   lastTime = Date.now();
 }
 
-// Draw line with fast-thin / slow-thick effect
+// Draw line with velocity-based thickness
 function draw(pos){
   if(!drawing) return;
   const now = Date.now();
@@ -58,12 +58,12 @@ function draw(pos){
   const dist = Math.sqrt((pos.x-lastX)**2 + (pos.y-lastY)**2);
   const speed = dist/dt;
 
-  // Slight fast-thin, slow-thick effect
   const baseSize = parseInt(size.value);
-  const dynamicSize = Math.max(1, baseSize * Math.min(2, 2 - speed*0.02));
+  // Map speed inversely to thickness: slower = thicker, faster = thinner
+  const lineWidth = Math.min(baseSize*2, Math.max(1, baseSize * (1 + 2 - speed*0.1)));
 
   ctx.strokeStyle = color.value;
-  ctx.lineWidth = dynamicSize;
+  ctx.lineWidth = lineWidth;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(lastX,lastY);
