@@ -1,9 +1,90 @@
-<canvas id="board" width="800" height="650" style="border:2px solid black;"></canvas>
-<br>
-<input type="color" id="color" value="#000000">
-<input type="range" id="size" min="1" max="30" value="5">
-<button id="undo">Undo</button>
-<button id="clear">Clear</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mini Drawing Game</title>
+<style>
+  body {
+    background: #111;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: sans-serif;
+  }
+  #canvas-container {
+    margin: 20px;
+    padding: 10px;
+    background: #222;
+    border-radius: 10px;
+    box-shadow: 0 0 20px #00ffff;
+  }
+  canvas {
+    border: 2px solid #0ff;
+    border-radius: 5px;
+    background: #000;
+  }
+  #controls {
+    margin-top: 20px;
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+  }
+  #controls input, #controls button {
+    font-size: 18px;
+    padding: 10px;
+    border-radius: 8px;
+    border: none;
+    outline: none;
+  }
+  #controls button {
+    background: #0ff;
+    color: #000;
+    cursor: pointer;
+    box-shadow: 0 0 10px #0ff;
+    transition: 0.2s;
+  }
+  #controls button:hover {
+    box-shadow: 0 0 20px #0ff;
+  }
+  #avatars {
+    display: flex;
+    gap: 15px;
+    margin-top: 15px;
+  }
+  .avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: #0ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #000;
+    box-shadow: 0 0 10px #0ff;
+  }
+</style>
+</head>
+<body>
+
+<h1>Mini Drawing Game</h1>
+
+<div id="canvas-container">
+  <canvas id="board" width="800" height="650"></canvas>
+</div>
+
+<div id="controls">
+  <input type="color" id="color" value="#00ffff">
+  <input type="range" id="size" min="1" max="30" value="5">
+  <button id="undo">Undo</button>
+  <button id="clear">Clear</button>
+</div>
+
+<div id="avatars">
+  <div class="avatar">A</div>
+  <div class="avatar">B</div>
+</div>
 
 <script>
 const canvas = document.getElementById("board");
@@ -50,7 +131,7 @@ function startDraw(pos){
   lastTime = Date.now();
 }
 
-// Draw line with velocity-based thickness
+// Draw line with noticeable fast-thin / slow-thick
 function draw(pos){
   if(!drawing) return;
   const now = Date.now();
@@ -59,8 +140,8 @@ function draw(pos){
   const speed = dist/dt;
 
   const baseSize = parseInt(size.value);
-  // Map speed inversely to thickness: slower = thicker, faster = thinner
-  const lineWidth = Math.min(baseSize*2, Math.max(1, baseSize * (1 + 2 - speed*0.1)));
+  // Stronger mapping for noticeable effect
+  const lineWidth = Math.max(1, Math.min(baseSize*3, baseSize * (2 - speed*0.05)));
 
   ctx.strokeStyle = color.value;
   ctx.lineWidth = lineWidth;
@@ -98,3 +179,6 @@ canvas.addEventListener("touchend", e=>stopDraw(lastX,lastY));
 undoBtn.onclick = () => { if(history.length>0){ history.pop(); restoreState(); } };
 clearBtn.onclick = () => { ctx.clearRect(0,0,canvas.width,canvas.height); saveState(); };
 </script>
+
+</body>
+</html>
