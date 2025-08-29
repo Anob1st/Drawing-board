@@ -1,148 +1,226 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Drawing Board</title>
-  <style>
-    body { 
-      display: flex; 
-      flex-direction: column;
-      align-items: center;
-      margin: 0;
-      background: #f4f4f4;
-      font-family: sans-serif;
-    }
-    #controls {
-      margin: 10px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    canvas { 
-      border: 2px solid black; 
-      background: white; 
-      touch-action: none; /* Prevent page scrolling while drawing */
-    }
-  </style>
+<meta charset="UTF-8">
+<title>2-Player Drawing Board</title>
+<style>
+  body { 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    margin: 0; 
+    font-family: sans-serif; 
+    background: #f4f4f4;
+  }
+  canvas { 
+    border: 2px solid black; 
+    background: white; 
+    touch-action: none; 
+  }
+  #controls { 
+    margin-top: 10px; 
+    display: flex; 
+    gap: 10px; 
+    flex-wrap: wrap; 
+  }
+</style>
 </head>
 <body>
-  <div id="controls">
-    <label>Color: <input type="color" id="color" value="#000000"></label>
-    <label>Brush Size: <input type="range" id="brushSize" min="1" max="30" value="5"></label>
-    <button id="undo">Undo</button>
-    <button id="clear">Clear</button>
-    <button id="fill">Fill</button>
-  </div>
 
-  <canvas id="board" width="800" height="500"></canvas>
+<canvas id="board" width="800" height="600"></canvas>
 
-  <script>
-    const canvas = document.getElementById('board');
-    const ctx = canvas.getContext('2d');
-    let drawing = false;
-    let lastX = 0, lastY = 0, lastTime = 0;
-    let history = [];
+<div id="controls">
+  <label>Tool:
+    <select id="tool">
+      <option value="brush">Brush</option>
+      <option value="circle">Circle</option>
+      <option value="rectangle">Rectangle</option>
+      <option value="line">Line</option>
+    </select>
+  </label>
 
-    function startDraw(x, y) {
-      drawing = true;
-      [lastX, lastY] = [x, y];
-      lastTime = Date.now();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
+  <label>Color: <input type="color" id="color" value="#000000"></label>
+  <label>Brush Size: <input type="range" id="brushSize" min="1" max="30" value="5"></label>
+  <button id="undo">Undo</button>
+  <button id="clear">Clear</button>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+  // ====== Firebase Config (Inserted) ======
+  const firebaseConfig = {
+    apiKey: "AIzaSyBmIGMKcmESfG5C8xFdF8l2ccJvZDaxgdw",
+    authDomain: "dddd5-5b70a.firebaseapp.com",
+    projectId: "dddd5-5b70a",
+    storageBucket: "dddd5-5b70a.firebasestorage.app",
+    messagingSenderId: "673110694991",
+    appId: "1:673110694991:web:9eeb0e6a638e54e623de3a",
+    measurementId: "G-S2TEP4N26P"
+  };
+
+  // ====== Initialize Firebase ======
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const strokesRef = db.ref("strokes");
+
+  // ====== Canvas Setup ======
+  const canvas = document.getElementById("board");
+  const ctx = canvas.getContext("2d");
+
+  let drawing = false;
+  let startX = 0, startY = 0, lastTime = 0;
+  let playerId = "player_" + Math.floor(Math.random()*10000);
+
+  const toolSelect = document.getElementById("tool");
+  const colorInput = document.getElementById("color");
+  const brushSizeInput = document.getElementById("brushSize");
+
+  let history = [];
+
+  function saveState() {
+    const dataURL = canvas.toDataURL();
+    history.push(dataURL);
+    if (history.length > 20) history.shift();
+  }
+
+  function drawShape(x, y, tool, color, size, startX, startY) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+    ctx.beginPath();
+
+    switch(tool) {
+      case "brush":
+        ctx.lineCap = "round";
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        break;
+      case "circle":
+        let radius = Math.sqrt((x-startX)**2 + (y-startY)**2);
+        ctx.arc(startX, startY, radius, 0, 2*Math.PI);
+        ctx.stroke();
+        break;
+      case "rectangle":
+        ctx.strokeRect(Math.min(startX,x), Math.min(startY,y), Math.abs(x-startX), Math.abs(y-startY));
+        break;
+      case "line":
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        break;
     }
+  }
 
-    function stopDraw() {
-      drawing = false;
-      ctx.beginPath();
-      saveState();
-    }
+  // ====== Local Draw + Firebase Push ======
+  function startDraw(x, y) {
+    drawing = true;
+    startX = x;
+    startY = y;
+    lastTime = Date.now();
+  }
 
-    function draw(x, y) {
-      if (!drawing) return;
+  function stopDraw(x, y) {
+    if(!drawing) return;
+    drawing = false;
+    const size = parseInt(brushSizeInput.value);
+    drawShape(x, y, toolSelect.value, colorInput.value, size, startX, startY);
 
-      let now = Date.now();
-      let deltaTime = now - lastTime;
-      lastTime = now;
-
-      // Brush dynamics: slow = thicker, fast = thinner
-      let velocity = Math.sqrt((x - lastX) ** 2 + (y - lastY) ** 2) / deltaTime;
-      let dynamicSize = Math.max(1, Math.min(30, brushSize.value / velocity));
-
-      ctx.lineWidth = dynamicSize;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = color.value;
-
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-
-      [lastX, lastY] = [x, y];
-    }
-
-    // Save state for undo
-    function saveState() {
-      history.push(canvas.toDataURL());
-      if (history.length > 20) history.shift(); // Limit history
-    }
-
-    // Undo last action
-    document.getElementById('undo').onclick = () => {
-      if (history.length > 0) {
-        history.pop(); // remove current
-        let imgData = history[history.length - 1];
-        let img = new Image();
-        img.src = imgData;
-        img.onload = () => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
-        }
-      }
+    const strokeData = {
+      x, y, startX, startY,
+      tool: toolSelect.value,
+      color: colorInput.value,
+      size: size,
+      player: playerId,
+      timestamp: Date.now()
     };
-
-    // Clear
-    document.getElementById('clear').onclick = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      saveState();
-    };
-
-    // Fill
-    document.getElementById('fill').onclick = () => {
-      ctx.fillStyle = color.value;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      saveState();
-    };
-
-    // Inputs
-    const color = document.getElementById('color');
-    const brushSize = document.getElementById('brushSize');
-
-    // Mouse events
-    canvas.addEventListener('mousedown', e => startDraw(e.offsetX, e.offsetY));
-    canvas.addEventListener('mouseup', stopDraw);
-    canvas.addEventListener('mouseout', stopDraw);
-    canvas.addEventListener('mousemove', e => draw(e.offsetX, e.offsetY));
-
-    // Touch events (mobile)
-    canvas.addEventListener('touchstart', e => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const touch = e.touches[0];
-      startDraw(touch.clientX - rect.left, touch.clientY - rect.top);
-    });
-
-    canvas.addEventListener('touchmove', e => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const touch = e.touches[0];
-      draw(touch.clientX - rect.left, touch.clientY - rect.top);
-    });
-
-    canvas.addEventListener('touchend', stopDraw);
-    canvas.addEventListener('touchcancel', stopDraw);
-
-    // Initial save
+    strokesRef.push(strokeData);
     saveState();
-  </script>
+  }
+
+  // ====== Mouse & Touch Events ======
+  canvas.addEventListener("mousedown", e => startDraw(e.offsetX, e.offsetY));
+  canvas.addEventListener("mouseup", e => stopDraw(e.offsetX, e.offsetY));
+  canvas.addEventListener("mouseout", e => stopDraw(e.offsetX, e.offsetY));
+  canvas.addEventListener("mousemove", e => {
+    if(toolSelect.value=="brush" && drawing){
+      const now = Date.now();
+      let velocity = Math.sqrt((e.offsetX - startX)**2 + (e.offsetY - startY)**2)/(now - lastTime);
+      lastTime = now;
+      let size = Math.max(1, Math.min(parseInt(brushSizeInput.value), parseInt(brushSizeInput.value)/velocity));
+      drawShape(e.offsetX, e.offsetY, "brush", colorInput.value, size, startX, startY);
+      const strokeData = {
+        x: e.offsetX, y: e.offsetY,
+        startX, startY,
+        tool: "brush",
+        color: colorInput.value,
+        size: size,
+        player: playerId,
+        timestamp: Date.now()
+      };
+      strokesRef.push(strokeData);
+      startX = e.offsetX; startY = e.offsetY;
+    }
+  });
+
+  canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    startDraw(t.clientX-rect.left, t.clientY-rect.top);
+  });
+  canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    if(toolSelect.value=="brush" && drawing){
+      const now = Date.now();
+      let velocity = Math.sqrt((t.clientX-rect.left-startX)**2 + (t.clientY-rect.top-startY)**2)/(now-lastTime);
+      lastTime = now;
+      let size = Math.max(1, Math.min(parseInt(brushSizeInput.value), parseInt(brushSizeInput.value)/velocity));
+      drawShape(t.clientX-rect.left, t.clientY-rect.top, "brush", colorInput.value, size, startX, startY);
+      const strokeData = {
+        x: t.clientX-rect.left,
+        y: t.clientY-rect.top,
+        startX, startY,
+        tool: "brush",
+        color: colorInput.value,
+        size: size,
+        player: playerId,
+        timestamp: Date.now()
+      };
+      strokesRef.push(strokeData);
+      startX = t.clientX-rect.left; startY = t.clientY-rect.top;
+    }
+  });
+  canvas.addEventListener("touchend", e => stopDraw(startX, startY));
+  canvas.addEventListener("touchcancel", e => stopDraw(startX, startY));
+
+  // ====== Firebase Listener for Multiplayer ======
+  strokesRef.on("child_added", snapshot => {
+    const s = snapshot.val();
+    if(s.player!==playerId){
+      drawShape(s.x, s.y, s.tool, s.color, s.size, s.startX, s.startY);
+    }
+  });
+
+  // ====== Buttons ======
+  document.getElementById("clear").onclick = () => {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    strokesRef.remove(); // clear all strokes
+    saveState();
+  };
+
+  document.getElementById("undo").onclick = () => {
+    if(history.length>1){
+      history.pop();
+      let img = new Image();
+      img.src = history[history.length-1];
+      img.onload = ()=> ctx.drawImage(img,0,0);
+    }
+  };
+</script>
 </body>
 </html>
