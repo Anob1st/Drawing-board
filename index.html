@@ -1,4 +1,5 @@
 <canvas id="board" width="800" height="600" style="border:2px solid black;"></canvas>
+<br>
 <select id="tool">
   <option value="brush">Brush</option>
   <option value="circle">Circle</option>
@@ -8,65 +9,119 @@
 </select>
 <input type="color" id="color" value="#000000">
 <input type="range" id="size" min="1" max="30" value="5">
+<button id="undo">Undo</button>
 <button id="clear">Clear</button>
 
 <script>
 const canvas = document.getElementById("board");
 const ctx = canvas.getContext("2d");
-let drawing=false, startX=0, startY=0;
 
 const tool = document.getElementById("tool");
 const color = document.getElementById("color");
 const size = document.getElementById("size");
+const undoBtn = document.getElementById("undo");
+const clearBtn = document.getElementById("clear");
 
+let drawing = false;
+let startX = 0, startY = 0;
+let lastTime = 0;
+let history = [];
+
+function saveState() {
+  history.push(canvas.toDataURL());
+  if(history.length>20) history.shift();
+}
+
+function restoreState() {
+  if(history.length>0){
+    let img = new Image();
+    img.src = history[history.length-1];
+    img.onload = ()=> ctx.drawImage(img,0,0);
+  }
+}
+
+// Get mouse/touch position relative to canvas
 function getPos(e){
   const rect = canvas.getBoundingClientRect();
   if(e.touches) return {x:e.touches[0].clientX-rect.left, y:e.touches[0].clientY-rect.top};
   return {x:e.offsetX, y:e.offsetY};
 }
 
-canvas.addEventListener("mousedown", e => { drawing=true; const pos=getPos(e); startX=pos.x; startY=pos.y; });
-canvas.addEventListener("mouseup", e => { drawShape(getPos(e)); drawing=false; });
-canvas.addEventListener("mousemove", e => { if(drawing && tool.value=="brush") drawShape(getPos(e)); });
+function startDraw(pos){
+  drawing=true;
+  startX=pos.x;
+  startY=pos.y;
+  lastTime = Date.now();
+}
 
-canvas.addEventListener("touchstart", e => { e.preventDefault(); drawing=true; const pos=getPos(e); startX=pos.x; startY=pos.y; });
-canvas.addEventListener("touchmove", e => { e.preventDefault(); if(drawing && tool.value=="brush") drawShape(getPos(e)); });
-canvas.addEventListener("touchend", e => { drawing=false; });
+function stopDraw(pos){
+  if(!drawing) return;
+  drawShape(pos);
+  drawing=false;
+  saveState();
+}
 
+// Draw shape based on tool
 function drawShape(pos){
   ctx.strokeStyle=color.value;
   ctx.fillStyle=color.value;
-  ctx.lineWidth=size.value;
+  let toolValue = tool.value;
+  let brushSize = parseInt(size.value);
+  ctx.lineWidth = brushSize;
   ctx.beginPath();
-  switch(tool.value){
-    case "brush":
-      ctx.lineCap="round";
-      ctx.moveTo(startX,startY);
-      ctx.lineTo(pos.x,pos.y);
-      ctx.stroke();
-      startX=pos.x; startY=pos.y;
-      break;
-    case "line":
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.moveTo(startX,startY);
-      ctx.lineTo(pos.x,pos.y);
-      ctx.stroke();
-      break;
-    case "rectangle":
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.strokeRect(Math.min(startX,pos.x), Math.min(startY,pos.y), Math.abs(pos.x-startX), Math.abs(pos.y-startY));
-      break;
-    case "circle":
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      let r = Math.sqrt((pos.x-startX)**2+(pos.y-startY)**2);
-      ctx.arc(startX,startY,r,0,2*Math.PI);
-      ctx.stroke();
-      break;
-    case "fill":
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-      break;
+  
+  if(toolValue=="brush"){
+    let now = Date.now();
+    let dt = now - lastTime;
+    let dist = Math.sqrt((pos.x - startX)**2 + (pos.y - startY)**2);
+    let velocity = dist / (dt || 1);
+    let dynamicSize = Math.max(1, brushSize / velocity);
+    ctx.lineWidth = dynamicSize*2;
+    ctx.lineCap = "round";
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    startX=pos.x;
+    startY=pos.y;
+    lastTime=now;
+  }
+  else if(toolValue=="line"){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    restoreState();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+  }
+  else if(toolValue=="rectangle"){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    restoreState();
+    ctx.strokeRect(Math.min(startX,pos.x), Math.min(startY,pos.y), Math.abs(pos.x-startX), Math.abs(pos.y-startY));
+  }
+  else if(toolValue=="circle"){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    restoreState();
+    let r = Math.sqrt((pos.x-startX)**2 + (pos.y-startY)**2);
+    ctx.arc(startX,startY,r,0,2*Math.PI);
+    ctx.stroke();
+  }
+  else if(toolValue=="fill"){
+    ctx.fillRect(0,0,canvas.width,canvas.height);
   }
 }
 
-document.getElementById("clear").onclick=()=>ctx.clearRect(0,0,canvas.width,canvas.height);
+// Mouse events
+canvas.addEventListener("mousedown", e => startDraw(getPos(e)));
+canvas.addEventListener("mousemove", e => { if(drawing && tool.value=="brush") drawShape(getPos(e)); });
+canvas.addEventListener("mouseup", e => stopDraw(getPos(e)));
+canvas.addEventListener("mouseout", e => stopDraw(getPos(e)));
+
+// Touch events
+canvas.addEventListener("touchstart", e => { e.preventDefault(); startDraw(getPos(e)); });
+canvas.addEventListener("touchmove", e => { e.preventDefault(); if(drawing && tool.value=="brush") drawShape(getPos(e)); });
+canvas.addEventListener("touchend", e => stopDraw(getPos(e)));
+
+// Buttons
+undoBtn.onclick = () => { if(history.length>0){history.pop(); restoreState();} };
+clearBtn.onclick = () => { ctx.clearRect(0,0,canvas.width,canvas.height); saveState(); };
+
 </script>
