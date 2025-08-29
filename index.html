@@ -50,21 +50,24 @@ function startDraw(pos){
   lastTime = Date.now();
 }
 
-// Draw line with slight speed-based thickness
+// Draw line with fast-thin / slow-thick effect
 function draw(pos){
   if(!drawing) return;
   const now = Date.now();
-  const dt = now - lastTime;
+  const dt = now - lastTime || 1;
   const dist = Math.sqrt((pos.x-lastX)**2 + (pos.y-lastY)**2);
-  let velocity = dist / (dt||1);
-  let dynamicSize = parseInt(size.value) / (1 + velocity*0.05); // slight fast-thin effect
+  const speed = dist/dt;
+
+  // Slight fast-thin, slow-thick effect
+  const baseSize = parseInt(size.value);
+  const dynamicSize = Math.max(1, baseSize * Math.min(2, 2 - speed*0.02));
 
   ctx.strokeStyle = color.value;
-  ctx.lineWidth = Math.max(1,dynamicSize);
+  ctx.lineWidth = dynamicSize;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(pos.x, pos.y);
+  ctx.moveTo(lastX,lastY);
+  ctx.lineTo(pos.x,pos.y);
   ctx.stroke();
 
   lastX = pos.x;
@@ -92,14 +95,6 @@ canvas.addEventListener("touchmove", e=>{ e.preventDefault(); draw(getPos(e)); }
 canvas.addEventListener("touchend", e=>stopDraw(lastX,lastY));
 
 // Buttons
-undoBtn.onclick = () => {
-  if(history.length>0){ 
-    history.pop(); 
-    restoreState(); 
-  }
-};
-clearBtn.onclick = () => { 
-  ctx.clearRect(0,0,canvas.width,canvas.height); 
-  saveState(); 
-};
+undoBtn.onclick = () => { if(history.length>0){ history.pop(); restoreState(); } };
+clearBtn.onclick = () => { ctx.clearRect(0,0,canvas.width,canvas.height); saveState(); };
 </script>
