@@ -2,52 +2,102 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>2-Player Drawing Board</title>
+<title>Mini Skribbl Game</title>
 <style>
-  body { 
-    display: flex; 
-    flex-direction: column; 
-    align-items: center; 
-    margin: 0; 
-    font-family: sans-serif; 
-    background: #f4f4f4;
-  }
-  canvas { 
-    border: 2px solid black; 
-    background: white; 
-    touch-action: none; 
-  }
-  #controls { 
-    margin-top: 10px; 
-    display: flex; 
-    gap: 10px; 
-    flex-wrap: wrap; 
-  }
-  #players {
-    margin-top: 10px;
-    font-weight: bold;
-  }
+body{
+  margin:0;
+  font-family:sans-serif;
+  background:#e6f2ff;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+h1{color:#004d99;text-align:center;}
+#game{
+  display:flex;
+  flex-direction:row;
+  margin-top:10px;
+}
+#left{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+canvas{
+  border:2px solid #004d99;
+  background:white;
+  touch-action:none;
+}
+#controls{
+  margin-top:10px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+#right{
+  margin-left:20px;
+  background:#ffffffcc;
+  border:2px solid #004d99;
+  padding:10px;
+  border-radius:10px;
+  width:200px;
+}
+.player{
+  display:flex;
+  align-items:center;
+  margin-bottom:5px;
+}
+.avatar{
+  width:24px;height:24px;border-radius:50%;margin-right:5px;
+}
+#timer{
+  font-weight:bold;
+  margin-bottom:10px;
+  color:#e60000;
+}
+#guessInput{
+  margin-top:10px;
+  width:100%;
+}
+#messages{
+  max-height:200px;
+  overflow-y:auto;
+  margin-top:10px;
+  border-top:1px solid #004d99;
+  padding-top:5px;
+}
+.message{
+  font-size:14px;
+  margin-bottom:3px;
+}
 </style>
 </head>
 <body>
-
-<div id="players">Players: </div>
-<canvas id="board" width="800" height="600"></canvas>
-
-<div id="controls">
-  <label>Tool:
-    <select id="tool">
-      <option value="brush">Brush</option>
-      <option value="circle">Circle</option>
-      <option value="rectangle">Rectangle</option>
-      <option value="line">Line</option>
-    </select>
-  </label>
-
-  <label>Color: <input type="color" id="color" value="#000000"></label>
-  <label>Brush Size: <input type="range" id="brushSize" min="1" max="30" value="5"></label>
-  <button id="undo">Undo</button>
-  <button id="clear">Clear</button>
+<h1>Mini Skribbl</h1>
+<div id="game">
+  <div id="left">
+    <canvas id="board" width="800" height="600"></canvas>
+    <div id="controls">
+      <select id="tool">
+        <option value="brush">Brush</option>
+        <option value="circle">Circle</option>
+        <option value="rectangle">Rectangle</option>
+        <option value="line">Line</option>
+        <option value="fill">Fill</option>
+      </select>
+      <input type="color" id="color" value="#000000">
+      <input type="range" id="brushSize" min="1" max="30" value="5">
+      <button id="undo">Undo</button>
+      <button id="clear">Clear</button>
+    </div>
+    <div id="timer">Time: 60</div>
+    <input id="guessInput" placeholder="Type your guess" />
+    <div id="messages"></div>
+  </div>
+  <div id="right">
+    <h3>Players</h3>
+    <div id="playerList"></div>
+  </div>
 </div>
 
 <!-- Firebase Compat SDK -->
@@ -55,169 +105,126 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <script>
-  // ====== Firebase Config ======
-  const firebaseConfig = {
-    apiKey: "AIzaSyBmIGMKcmESfG5C8xFdF8l2ccJvZDaxgdw",
-    authDomain: "dddd5-5b70a.firebaseapp.com",
-    projectId: "dddd5-5b70a",
-    storageBucket: "dddd5-5b70a.firebasestorage.app",
-    messagingSenderId: "673110694991",
-    appId: "1:673110694991:web:9eeb0e6a638e54e623de3a",
-    measurementId: "G-S2TEP4N26P"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyBmIGMKcmESfG5C8xFdF8l2ccJvZDaxgdw",
+  authDomain: "dddd5-5b70a.firebaseapp.com",
+  projectId: "dddd5-5b70a",
+  storageBucket: "dddd5-5b70a.firebasestorage.app",
+  messagingSenderId: "673110694991",
+  appId: "1:673110694991:web:9eeb0e6a638e54e623de3a",
+  measurementId: "G-S2TEP4N26P"
+};
+firebase.initializeApp(firebaseConfig);
+const db=firebase.database();
 
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
+let playerName = prompt("Enter your name") || "Player"+Math.floor(Math.random()*1000);
+let roomId = prompt("Enter room name") || "room1";
+let playerId = playerName;
+let strokesRef = db.ref("rooms/"+roomId+"/strokes");
+let playersRef = db.ref("rooms/"+roomId+"/players");
+let currentTurnRef = db.ref("rooms/"+roomId+"/currentTurn");
+let guessesRef = db.ref("rooms/"+roomId+"/guesses");
 
-  // ====== Room + Player Setup ======
-  let playerName = prompt("Enter your player name") || "Player_" + Math.floor(Math.random()*1000);
-  let roomId = prompt("Enter room name") || "default_room";
-  let playerId = playerName;
-  const strokesRef = db.ref("rooms/" + roomId + "/strokes");
+const canvas=document.getElementById("board");
+const ctx=canvas.getContext("2d");
+const toolSelect=document.getElementById("tool");
+const colorInput=document.getElementById("color");
+const brushSizeInput=document.getElementById("brushSize");
+const undoBtn=document.getElementById("undo");
+const clearBtn=document.getElementById("clear");
+const guessInput=document.getElementById("guessInput");
+const messages=document.getElementById("messages");
+const playerListDiv=document.getElementById("playerList");
+const timerDiv=document.getElementById("timer");
 
-  const canvas = document.getElementById("board");
-  const ctx = canvas.getContext("2d");
+let drawing=false,startX=0,startY=0,lastPush=0,history=[],timer=60,turnInterval=null;
+let wordList=["apple","banana","cat","dog","house","sun","car","tree","book"];
+let currentWord="",isDrawer=false;
 
-  const toolSelect = document.getElementById("tool");
-  const colorInput = document.getElementById("color");
-  const brushSizeInput = document.getElementById("brushSize");
-
-  let drawing = false, startX=0, startY=0, lastTime=0;
-  let history = [];
-  let lastPush = 0;
-
-  function saveState(){
-    const dataURL = canvas.toDataURL();
-    history.push(dataURL);
-    if(history.length>20) history.shift();
-  }
-
-  function drawShape(x, y, tool, color, size, startX, startY){
-    ctx.strokeStyle = color;
-    ctx.lineWidth = size;
-    ctx.beginPath();
-    switch(tool){
-      case "brush":
-        ctx.lineCap = "round";
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(x, y);
-        ctx.stroke();
-        break;
-      case "circle":
-        let radius = Math.sqrt((x-startX)**2 + (y-startY)**2);
-        ctx.arc(startX, startY, radius, 0, 2*Math.PI);
-        ctx.stroke();
-        break;
-      case "rectangle":
-        ctx.strokeRect(Math.min(startX,x), Math.min(startY,y), Math.abs(x-startX), Math.abs(y-startY));
-        break;
-      case "line":
-        ctx.moveTo(startX, startY);
-        ctx.lineTo(x, y);
-        ctx.stroke();
-        break;
-    }
-  }
-
-  function startDraw(x,y){
-    drawing=true;
-    startX=x; startY=y;
-    lastTime=Date.now();
-  }
-
-  function stopDraw(x,y){
-    if(!drawing) return;
-    drawing=false;
-    const size=parseInt(brushSizeInput.value);
-    drawShape(x,y,toolSelect.value,colorInput.value,size,startX,startY);
-
-    const strokeData = {
-      x, y, startX, startY,
-      tool: toolSelect.value,
-      color: colorInput.value,
-      size: size,
-      player: playerId,
-      timestamp: Date.now()
-    };
-    strokesRef.push(strokeData);
-    saveState();
-  }
-
-  // ====== Mouse & Touch Events ======
-  canvas.addEventListener("mousedown", e => startDraw(e.offsetX, e.offsetY));
-  canvas.addEventListener("mouseup", e => stopDraw(e.offsetX, e.offsetY));
-  canvas.addEventListener("mouseout", e => stopDraw(e.offsetX, e.offsetY));
-
-  canvas.addEventListener("mousemove", e => {
-    if(toolSelect.value=="brush" && drawing){
-      const now = Date.now();
-      if(now-lastPush<30) return;
-      lastPush=now;
-      let velocity = Math.sqrt((e.offsetX - startX)**2 + (e.offsetY - startY)**2)/(now - lastTime);
-      lastTime = now;
-      let size = Math.max(1, Math.min(parseInt(brushSizeInput.value), parseInt(brushSizeInput.value)/velocity));
-      drawShape(e.offsetX,e.offsetY,"brush",colorInput.value,size,startX,startY);
-      strokesRef.push({x:e.offsetX, y:e.offsetY, startX, startY, tool:"brush", color:colorInput.value, size:size, player:playerId, timestamp:Date.now()});
-      startX=e.offsetX; startY=e.offsetY;
-    }
+// ====== Add player to room ======
+playersRef.child(playerId).set({score:0});
+playersRef.on("value",snap=>{
+  playerListDiv.innerHTML="";
+  snap.forEach(s=>{
+    let div=document.createElement("div");
+    div.className="player";
+    div.innerHTML=`<div class="avatar" style="background:#${Math.floor(Math.random()*16777215).toString(16)}"></div>${s.key}: ${s.val().score}`;
+    playerListDiv.appendChild(div);
   });
+});
 
-  canvas.addEventListener("touchstart", e => {
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const t = e.touches[0];
-    startDraw(t.clientX-rect.left, t.clientY-rect.top);
-  });
+// ====== Turn management ======
+currentTurnRef.on("value",snap=>{
+  let val = snap.val();
+  if(!val){
+    startNewTurn();
+    return;
+  }
+  if(val.player==playerId){
+    isDrawer=true;
+    currentWord=val.word;
+    alert("You are drawing: "+currentWord);
+  }else{
+    isDrawer=false;
+    currentWord=val.word;
+    alert(val.player+" is drawing. Guess!");
+  }
+  resetCanvas();
+  timer=60;
+  startTimer();
+});
 
-  canvas.addEventListener("touchmove", e => {
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const t = e.touches[0];
-    if(toolSelect.value=="brush" && drawing){
-      const now = Date.now();
-      if(now-lastPush<30) return;
-      lastPush=now;
-      let velocity = Math.sqrt((t.clientX-rect.left-startX)**2 + (t.clientY-rect.top-startY)**2)/(now-lastTime);
-      lastTime = now;
-      let size = Math.max(1, Math.min(parseInt(brushSizeInput.value), parseInt(brushSizeInput.value)/velocity));
-      drawShape(t.clientX-rect.left,t.clientY-rect.top,"brush",colorInput.value,size,startX,startY);
-      strokesRef.push({x:t.clientX-rect.left, y:t.clientY-rect.top, startX, startY, tool:"brush", color:colorInput.value, size:size, player:playerId, timestamp:Date.now()});
-      startX = t.clientX-rect.left; startY = t.clientY-rect.top;
-    }
-  });
+// ====== Drawing functions ======
+function startDraw(x,y){drawing=true; startX=x; startY=y;}
+function stopDraw(x,y){
+  if(!drawing) return;
+  drawing=false;
+  const size=parseInt(brushSizeInput.value);
+  drawShape(x,y,toolSelect.value,colorInput.value,size,startX,startY);
+  if(isDrawer){
+    strokesRef.push({x,y,startX,startY,tool:toolSelect.value,color:colorInput.value,size,size,player:playerId});
+  }
+  saveState();
+}
+function drawShape(x,y,tool,color,size,sx,sy){
+  ctx.strokeStyle=color;
+  ctx.fillStyle=color;
+  ctx.lineWidth=size;
+  ctx.beginPath();
+  switch(tool){
+    case"brush":ctx.lineCap="round";ctx.moveTo(sx,sy);ctx.lineTo(x,y);ctx.stroke();break;
+    case"circle":let r=Math.sqrt((x-sx)**2+(y-sy)**2);ctx.arc(sx,sy,r,0,2*Math.PI);ctx.stroke();break;
+    case"rectangle":ctx.strokeRect(Math.min(sx,x),Math.min(sy,y),Math.abs(x-sx),Math.abs(y-sy));break;
+    case"line":ctx.moveTo(sx,sy);ctx.lineTo(x,y);ctx.stroke();break;
+    case"fill":ctx.fillRect(0,0,canvas.width,canvas.height);break;
+  }
+}
+function saveState(){history.push(canvas.toDataURL());if(history.length>20) history.shift();}
+function resetCanvas(){ctx.clearRect(0,0,canvas.width,canvas.height);history=[];strokesRef.remove();}
 
-  canvas.addEventListener("touchend", e => stopDraw(startX,startY));
-  canvas.addEventListener("touchcancel", e => stopDraw(startX,startY));
+// ====== Mouse & Touch events ======
+canvas.addEventListener("mousedown",e=>startDraw(e.offsetX,e.offsetY));
+canvas.addEventListener("mouseup",e=>stopDraw(e.offsetX,e.offsetY));
+canvas.addEventListener("mousemove",e=>{
+  if(!drawing||toolSelect.value!=="brush") return;
+  const now=Date.now();
+  if(now-lastPush<30) return;
+  lastPush=now;
+  drawShape(e.offsetX,e.offsetY,"brush",colorInput.value,parseInt(brushSizeInput.value),startX,startY);
+  if(isDrawer)strokesRef.push({x:e.offsetX,y:e.offsetY,startX,startY,tool:"brush",color:colorInput.value,size:parseInt(brushSizeInput.value),player:playerId});
+  startX=e.offsetX;startY=e.offsetY;
+});
+canvas.addEventListener("touchstart",e=>{const t=e.touches[0];startDraw(t.clientX,t.clientY);});
+canvas.addEventListener("touchmove",e=>{const t=e.touches[0];if(!drawing||toolSelect.value!=="brush") return;drawShape(t.clientX,t.clientY,"brush",colorInput.value,parseInt(brushSizeInput.value),startX,startY);if(isDrawer)strokesRef.push({x:t.clientX,y:t.clientY,startX,startY,tool:"brush",color:colorInput.value,size:parseInt(brushSizeInput.value),player:playerId});startX=t.clientX;startY=t.clientY;});
+canvas.addEventListener("mouseup",e=>stopDraw(startX,startY));
+canvas.addEventListener("touchend",e=>stopDraw(startX,startY));
 
-  // ====== Firebase Listener ======
-  strokesRef.on("child_added", snapshot=>{
-    const s = snapshot.val();
-    if(s.player!==playerId){
-      drawShape(s.x,s.y,s.tool,s.color,s.size,s.startX,s.startY);
-    }
-    // Update player list
-    strokesRef.once("value").then(data=>{
-      const players = new Set();
-      data.forEach(stroke => players.add(stroke.val().player));
-      document.getElementById("players").textContent = "Players: "+[...players].join(", ");
-    });
-  });
+// ====== Firebase stroke listener ======
+strokesRef.on("child_added",snap=>{const s=snap.val();if(s.player!==playerId)drawShape(s.x,s.y,s.tool,s.color,s.size,s.startX,s.startY);});
 
-  // ====== Buttons ======
-  document.getElementById("clear").onclick = ()=>{
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    strokesRef.remove();
-    saveState();
-  };
+// ====== Buttons ======
+undoBtn.onclick=()=>{if(history.length>1){history.pop();let img=new Image();img.src=history[history.length-1];img.onload=()=>ctx.drawImage(img,0,0);}};
+clearBtn.onclick=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);strokesRef.remove();saveState();};
 
-  document.getElementById("undo").onclick = ()=>{
-    if(history.length>1){
-      history.pop();
-      let img = new Image();
-      img.src = history[history.length-1];
-      img.onload = ()=> ctx.drawImage(img,0,0);
-    }
-  };
-</script>
-</body>
-</html>
+// ====== Guesses ======
+guessInput.addEventListener("keypress",e=>{if(e.key==="Enter"){let g=guessInput.value.trim();if(g==="")return;guessesRef.push({player
