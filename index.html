@@ -23,10 +23,15 @@
     gap: 10px; 
     flex-wrap: wrap; 
   }
+  #players {
+    margin-top: 10px;
+    font-weight: bold;
+  }
 </style>
 </head>
 <body>
 
+<div id="players">Players: </div>
 <canvas id="board" width="800" height="600"></canvas>
 
 <div id="controls">
@@ -45,12 +50,12 @@
   <button id="clear">Clear</button>
 </div>
 
-<!-- Firebase SDK -->
+<!-- Firebase Compat SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <script>
-  // ====== Firebase Config (Inserted) ======
+  // ====== Firebase Config ======
   const firebaseConfig = {
     apiKey: "AIzaSyBmIGMKcmESfG5C8xFdF8l2ccJvZDaxgdw",
     authDomain: "dddd5-5b70a.firebaseapp.com",
@@ -61,37 +66,37 @@
     measurementId: "G-S2TEP4N26P"
   };
 
-  // ====== Initialize Firebase ======
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
-  const strokesRef = db.ref("strokes");
 
-  // ====== Canvas Setup ======
+  // ====== Room + Player Setup ======
+  let playerName = prompt("Enter your player name") || "Player_" + Math.floor(Math.random()*1000);
+  let roomId = prompt("Enter room name") || "default_room";
+  let playerId = playerName;
+  const strokesRef = db.ref("rooms/" + roomId + "/strokes");
+
   const canvas = document.getElementById("board");
   const ctx = canvas.getContext("2d");
-
-  let drawing = false;
-  let startX = 0, startY = 0, lastTime = 0;
-  let playerId = "player_" + Math.floor(Math.random()*10000);
 
   const toolSelect = document.getElementById("tool");
   const colorInput = document.getElementById("color");
   const brushSizeInput = document.getElementById("brushSize");
 
+  let drawing = false, startX=0, startY=0, lastTime=0;
   let history = [];
+  let lastPush = 0;
 
-  function saveState() {
+  function saveState(){
     const dataURL = canvas.toDataURL();
     history.push(dataURL);
-    if (history.length > 20) history.shift();
+    if(history.length>20) history.shift();
   }
 
-  function drawShape(x, y, tool, color, size, startX, startY) {
+  function drawShape(x, y, tool, color, size, startX, startY){
     ctx.strokeStyle = color;
     ctx.lineWidth = size;
     ctx.beginPath();
-
-    switch(tool) {
+    switch(tool){
       case "brush":
         ctx.lineCap = "round";
         ctx.moveTo(startX, startY);
@@ -114,19 +119,17 @@
     }
   }
 
-  // ====== Local Draw + Firebase Push ======
-  function startDraw(x, y) {
-    drawing = true;
-    startX = x;
-    startY = y;
-    lastTime = Date.now();
+  function startDraw(x,y){
+    drawing=true;
+    startX=x; startY=y;
+    lastTime=Date.now();
   }
 
-  function stopDraw(x, y) {
+  function stopDraw(x,y){
     if(!drawing) return;
-    drawing = false;
-    const size = parseInt(brushSizeInput.value);
-    drawShape(x, y, toolSelect.value, colorInput.value, size, startX, startY);
+    drawing=false;
+    const size=parseInt(brushSizeInput.value);
+    drawShape(x,y,toolSelect.value,colorInput.value,size,startX,startY);
 
     const strokeData = {
       x, y, startX, startY,
@@ -144,24 +147,18 @@
   canvas.addEventListener("mousedown", e => startDraw(e.offsetX, e.offsetY));
   canvas.addEventListener("mouseup", e => stopDraw(e.offsetX, e.offsetY));
   canvas.addEventListener("mouseout", e => stopDraw(e.offsetX, e.offsetY));
+
   canvas.addEventListener("mousemove", e => {
     if(toolSelect.value=="brush" && drawing){
       const now = Date.now();
+      if(now-lastPush<30) return;
+      lastPush=now;
       let velocity = Math.sqrt((e.offsetX - startX)**2 + (e.offsetY - startY)**2)/(now - lastTime);
       lastTime = now;
       let size = Math.max(1, Math.min(parseInt(brushSizeInput.value), parseInt(brushSizeInput.value)/velocity));
-      drawShape(e.offsetX, e.offsetY, "brush", colorInput.value, size, startX, startY);
-      const strokeData = {
-        x: e.offsetX, y: e.offsetY,
-        startX, startY,
-        tool: "brush",
-        color: colorInput.value,
-        size: size,
-        player: playerId,
-        timestamp: Date.now()
-      };
-      strokesRef.push(strokeData);
-      startX = e.offsetX; startY = e.offsetY;
+      drawShape(e.offsetX,e.offsetY,"brush",colorInput.value,size,startX,startY);
+      strokesRef.push({x:e.offsetX, y:e.offsetY, startX, startY, tool:"brush", color:colorInput.value, size:size, player:playerId, timestamp:Date.now()});
+      startX=e.offsetX; startY=e.offsetY;
     }
   });
 
@@ -171,49 +168,49 @@
     const t = e.touches[0];
     startDraw(t.clientX-rect.left, t.clientY-rect.top);
   });
+
   canvas.addEventListener("touchmove", e => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const t = e.touches[0];
     if(toolSelect.value=="brush" && drawing){
       const now = Date.now();
+      if(now-lastPush<30) return;
+      lastPush=now;
       let velocity = Math.sqrt((t.clientX-rect.left-startX)**2 + (t.clientY-rect.top-startY)**2)/(now-lastTime);
       lastTime = now;
       let size = Math.max(1, Math.min(parseInt(brushSizeInput.value), parseInt(brushSizeInput.value)/velocity));
-      drawShape(t.clientX-rect.left, t.clientY-rect.top, "brush", colorInput.value, size, startX, startY);
-      const strokeData = {
-        x: t.clientX-rect.left,
-        y: t.clientY-rect.top,
-        startX, startY,
-        tool: "brush",
-        color: colorInput.value,
-        size: size,
-        player: playerId,
-        timestamp: Date.now()
-      };
-      strokesRef.push(strokeData);
+      drawShape(t.clientX-rect.left,t.clientY-rect.top,"brush",colorInput.value,size,startX,startY);
+      strokesRef.push({x:t.clientX-rect.left, y:t.clientY-rect.top, startX, startY, tool:"brush", color:colorInput.value, size:size, player:playerId, timestamp:Date.now()});
       startX = t.clientX-rect.left; startY = t.clientY-rect.top;
     }
   });
-  canvas.addEventListener("touchend", e => stopDraw(startX, startY));
-  canvas.addEventListener("touchcancel", e => stopDraw(startX, startY));
 
-  // ====== Firebase Listener for Multiplayer ======
-  strokesRef.on("child_added", snapshot => {
+  canvas.addEventListener("touchend", e => stopDraw(startX,startY));
+  canvas.addEventListener("touchcancel", e => stopDraw(startX,startY));
+
+  // ====== Firebase Listener ======
+  strokesRef.on("child_added", snapshot=>{
     const s = snapshot.val();
     if(s.player!==playerId){
-      drawShape(s.x, s.y, s.tool, s.color, s.size, s.startX, s.startY);
+      drawShape(s.x,s.y,s.tool,s.color,s.size,s.startX,s.startY);
     }
+    // Update player list
+    strokesRef.once("value").then(data=>{
+      const players = new Set();
+      data.forEach(stroke => players.add(stroke.val().player));
+      document.getElementById("players").textContent = "Players: "+[...players].join(", ");
+    });
   });
 
   // ====== Buttons ======
-  document.getElementById("clear").onclick = () => {
+  document.getElementById("clear").onclick = ()=>{
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    strokesRef.remove(); // clear all strokes
+    strokesRef.remove();
     saveState();
   };
 
-  document.getElementById("undo").onclick = () => {
+  document.getElementById("undo").onclick = ()=>{
     if(history.length>1){
       history.pop();
       let img = new Image();
